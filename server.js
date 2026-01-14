@@ -17,7 +17,9 @@ async function getPage(headless = true) {
       args: ["--no-sandbox", "--disable-dev-shm-usage"]
     });
 
-    context = await browser.newContext();
+    context = await browser.newContext({
+  storageState: "storageState.json"
+});
     page = await context.newPage();
   }
   return page;
