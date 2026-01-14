@@ -1,0 +1,68 @@
+{
+  "cookies": [
+    {
+      "name": "_GRECAPTCHA",
+      "value": "09AKhCRwjRFSeiFIdgtEkntyblgUlROsegX5AOK2Omvgz2-GL_lnDLnUiQ8ufM2naQZwuVIa5J5MdogobUrRrdfNw",
+      "domain": "www.google.com",
+      "path": "/recaptcha",
+      "expires": 1783963248.401395,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "MYAFFSESSID",
+      "value": "ill8ms86qlgsrrt7o1jfehubaq",
+      "domain": "admin.throneneataffiliates.com",
+      "path": "/",
+      "expires": 1769620855.466072,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ZBAN_last_login",
+      "value": "2026-01-14",
+      "domain": "admin.throneneataffiliates.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "SSR",
+      "value": "1",
+      "domain": "admin.throneneataffiliates.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Strict"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://admin.throneneataffiliates.com",
+      "localStorage": [
+        {
+          "name": "_grecaptcha",
+          "value": "09AKhCRwg5EsTG8LmAxNXsiBcAJTpVfOTbnZrORV6PMEWdrFCO57AOheMhC5u_yb814FCOS4XX_pucaNmB048-7OtVvNYxOFfo9ie0QdATD8TH3Z1cuWlBiazyiXenZzdM"
+        }
+      ]
+    },
+    {
+      "origin": "https://www.google.com",
+      "localStorage": [
+        {
+          "name": "rc::a",
+          "value": "MXNvYXQxYzFqa2Ixd24="
+        },
+        {
+          "name": "rc::f",
+          "value": "0aAKuB_xFhhgqQ_9jPaFncAPOLPUQdERC0DHZmMlzDjA2VpKNiNnmIiG04aezL7r_UVfuzkkY"
+        }
+      ]
+    }
+  ]
+}
