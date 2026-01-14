@@ -8,7 +8,9 @@ let browser = null;
 let context = null;
 let page = null;
 
-async function getPage() {
+const fs = require("fs");
+
+async function getPage(instance) {
   if (page) return page;
 
   browser = await chromium.launch({
@@ -16,10 +18,21 @@ async function getPage() {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
 
-  context = await browser.newContext();
+  const stateFile =
+    instance === "Realm" ? "storageState-Realm.json" : "storageState-Throne.json";
+
+  if (!fs.existsSync(stateFile)) {
+    throw new Error(`${stateFile} not found in project root.`);
+  }
+
+  context = await browser.newContext({
+    storageState: stateFile,
+  });
+
   page = await context.newPage();
   return page;
 }
+
 
 app.get("/health", (req, res) => {
   res.json({ ok: true, browserReady: !!page });
