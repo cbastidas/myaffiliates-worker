@@ -1,32 +1,18 @@
-FROM node:20-slim
+# Use the official Microsoft Playwright image
+FROM mcr.microsoft.com/playwright:v1.46.0-jammy
 
-# Install dependencies Playwright needs
-RUN apt-get update && apt-get install -y \
-  wget \
-  gnupg \
-  ca-certificates \
-  fonts-liberation \
-  libnss3 \
-  libatk-bridge2.0-0 \
-  libgtk-3-0 \
-  libgbm1 \
-  libasound2 \
-  libxss1 \
-  libxshmfence1 \
-  libu2f-udev \
-  libdrm2 \
-  libxkbcommon0 \
-  && rm -rf /var/lib/apt/lists/*
+# Set work directory
+WORKDIR /usr/src/app
 
-WORKDIR /app
-COPY package.json package-lock.json* ./
+# Copy package info and install dependencies
+COPY package*.json ./
 RUN npm install
 
-# Install Playwright browsers
-RUN npx playwright install --with-deps chromium
-
+# Copy all files (including your .json session files)
 COPY . .
 
-ENV PORT=3000
+# Expose port 3000
 EXPOSE 3000
-CMD ["npm", "start"]
+
+# Run the server
+CMD [ "node", "server.js" ]
