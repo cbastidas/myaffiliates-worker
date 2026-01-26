@@ -1,18 +1,18 @@
-# Use the official Microsoft Playwright image
-FROM mcr.microsoft.com/playwright:v1.46.0-jammy
+# Update to the version required by your logs
+FROM mcr.microsoft.com/playwright:v1.57.0-jammy
 
-# Set work directory
+# Create app directory
 WORKDIR /usr/src/app
 
-# Copy package info and install dependencies
+# Copy package files
 COPY package*.json ./
 RUN npm install
 
-# Copy all files (including your .json session files)
+# Copy the rest of your app
 COPY . .
 
-# Expose port 3000
-EXPOSE 3000
+# Ensure the port is dynamic for Railway
+ENV PORT=8080
+EXPOSE 8080
 
-# Run the server
 CMD [ "node", "server.js" ]
