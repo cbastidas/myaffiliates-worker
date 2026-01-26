@@ -1,105 +1,68 @@
-const express = require("express");
-const { chromium } = require("playwright");
-const fs = require("fs");
-const path = require("path");
+// ENDPOINT: Check if sessions are valid and files exist
+app.get("/status", async (req, res) => {
+  const instances = ["Throne", "Realm"];
+  const report = {};
 
-const app = express();
-app.use(express.json());
+  for (const instance of instances) {
+    const stateFile = getStatePath(instance);
+    const fileExists = fs.existsSync(stateFile);
+    let sessionValid = false;
+    let lastChecked = new Date().toISOString();
 
-// Helper to determine the state file path based on the instance name
-const getStatePath = (instance) => {
-  return instance === "Realm" ? "storageState-Realm.json" : "storageState-Throne.json";
-};
+    if (fileExists) {
+      const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+      try {
+        const context = await browser.newContext({ storageState: stateFile });
+        const page = await context.newPage();
+        
+        const url = instance === "Realm" 
+          ? "https://admin2.neataffiliates.com/dashboard" 
+          : "https://admin.throneneataffiliates.com/dashboard";
 
-// Function to refresh the session and overwrite the JSON with fresh cookies
-async function refreshSession(instance) {
-  const stateFile = getStatePath(instance);
-  
-  if (!fs.existsSync(stateFile)) {
-    throw new Error(`State file ${stateFile} not found. Run auth-save.js locally first.`);
-  }
-
-  const browser = await chromium.launch({ 
-    headless: true, 
-    args: ["--no-sandbox", "--disable-dev-shm-usage"] 
-  });
-  
-  const context = await browser.newContext({ storageState: stateFile });
-  const page = await context.newPage();
-
-  // URLs for session heartbeat
-  const url = instance === "Realm"
-    ? "https://admin2.neataffiliates.com/dashboard"
-    : "https://admin.throneneataffiliates.com/dashboard";
-
-  try {
-    console.log(`Refreshing session for ${instance}...`);
-    await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
-
-    // If redirected to login, the session is dead
-    if (page.url().includes("login.php")) {
-      throw new Error(`Session for ${instance} expired. Manual re-auth required.`);
+        await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+        
+        // If the URL does not contain 'login.php', the session is ACTIVE
+        sessionValid = !page.url().includes("login.php");
+      } catch (err) {
+        console.error(`Validation error for ${instance}:`, err.message);
+      } finally {
+        await browser.close();
+      }
     }
 
-    // Save the fresh state back to the file to update cookie expiration
+    report[instance] = {
+      file_found: fileExists,
+      session_active: sessionValid,
+      last_validation: lastChecked,
+      status: sessionValid ? "READY_TO_PROCEED" : "RE_AUTH_REQUIRED"
+    };
+  }
+
+  res.json({
+    system_status: "ONLINE",
+    instances: report
+  });
+});
+
+// IMPROVED REFRESH LOGIC (Ensures the file is physically overwritten on disk)
+async function refreshSession(instance) {
+  const stateFile = getStatePath(instance);
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  
+  try {
+    const context = await browser.newContext({ storageState: stateFile });
+    const page = await context.newPage();
+    const url = instance === "Realm" ? "https://admin2.neataffiliates.com/dashboard" : "https://admin.throneneataffiliates.com/dashboard";
+
+    await page.goto(url, { waitUntil: "networkidle" });
+
+    if (page.url().includes("login.php")) throw new Error("Expired");
+
+    // This command triggers the physical save to the storageState-X.json file
     await context.storageState({ path: stateFile });
-    console.log(`Session state updated successfully for ${instance} ✅`);
+    console.log(`[DISK SAVE] ${stateFile} updated with fresh cookies.`);
     return true;
   } finally {
     await browser.close();
   }
 }
-
-// ENDPOINT: Keep-alive (Call this from n8n every 10 mins for each instance)
-app.post("/refresh", async (req, res) => {
-  const { instance } = req.body; // Expects {"instance": "Throne"} or {"instance": "Realm"}
-  if (!instance) return res.status(400).json({ error: "Missing instance parameter" });
-
-  try {
-    await refreshSession(instance);
-    res.json({ ok: true, message: `Session for ${instance} refreshed and saved.` });
-  } catch (error) {
-    console.error(`Refresh error (${instance}):`, error.message);
-    res.status(500).json({ ok: false, error: error.message });
-  }
-});
-
-// ENDPOINT: Execute Search & Replace Job
-app.post("/job", async (req, res) => {
-  const { instance, blockedDomain, replacementDomain } = req.body;
-  const stateFile = getStatePath(instance);
-
-  if (!instance || !blockedDomain || !replacementDomain) {
-    return res.status(400).json({ ok: false, error: "Missing required fields: instance, blockedDomain, or replacementDomain" });
-  }
-
-  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
-  const context = await browser.newContext({ storageState: stateFile });
-  const page = await context.newPage();
-
-  const url = instance === "Realm"
-    ? "https://admin2.neataffiliates.com/landing-pages/search-and-replace"
-    : "https://admin.throneneataffiliates.com/landing-pages/search-and-replace";
-
-  try {
-    await page.goto(url, { waitUntil: "networkidle" });
-    
-    // Add Playwright automation logic for the form here
-    // Example:
-    // await page.fill('input[name="search"]', blockedDomain);
-    // await page.fill('input[name="replace"]', replacementDomain);
-    // await page.click('button[type="submit"]');
-
-    res.json({ ok: true, message: `Job processed for ${instance}`, domain: replacementDomain });
-  } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
-  } finally {
-    await browser.close();
-  }
-});
-
-// Railway dynamic port handling
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Multi-instance worker listening on port ${PORT} ✅`);
-});
