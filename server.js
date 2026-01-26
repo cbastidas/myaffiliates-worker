@@ -27,6 +27,7 @@ async function refreshSession(instance) {
   const context = await browser.newContext({ storageState: stateFile });
   const page = await context.newPage();
 
+  // URLs for session heartbeat
   const url = instance === "Realm"
     ? "https://admin2.neataffiliates.com/dashboard"
     : "https://admin.throneneataffiliates.com/dashboard";
@@ -37,10 +38,10 @@ async function refreshSession(instance) {
 
     // If redirected to login, the session is dead
     if (page.url().includes("login.php")) {
-      throw new Error("Session expired. Manual re-authentication required.");
+      throw new Error(`Session for ${instance} expired. Manual re-auth required.`);
     }
 
-    // CRITICAL: Save the state back to the file to update cookie expiration
+    // Save the fresh state back to the file to update cookie expiration
     await context.storageState({ path: stateFile });
     console.log(`Session state updated successfully for ${instance} ✅`);
     return true;
@@ -49,16 +50,16 @@ async function refreshSession(instance) {
   }
 }
 
-// ENDPOINT: Keep-alive (Call this from n8n every 10 mins)
+// ENDPOINT: Keep-alive (Call this from n8n every 10 mins for each instance)
 app.post("/refresh", async (req, res) => {
-  const { instance } = req.body;
-  if (!instance) return res.status(400).json({ error: "Missing instance" });
+  const { instance } = req.body; // Expects {"instance": "Throne"} or {"instance": "Realm"}
+  if (!instance) return res.status(400).json({ error: "Missing instance parameter" });
 
   try {
     await refreshSession(instance);
-    res.json({ ok: true, status: "Refreshed and Saved" });
+    res.json({ ok: true, message: `Session for ${instance} refreshed and saved.` });
   } catch (error) {
-    console.error("REFRESH_ERROR:", error.message);
+    console.error(`Refresh error (${instance}):`, error.message);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -67,6 +68,10 @@ app.post("/refresh", async (req, res) => {
 app.post("/job", async (req, res) => {
   const { instance, blockedDomain, replacementDomain } = req.body;
   const stateFile = getStatePath(instance);
+
+  if (!instance || !blockedDomain || !replacementDomain) {
+    return res.status(400).json({ ok: false, error: "Missing required fields: instance, blockedDomain, or replacementDomain" });
+  }
 
   const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
   const context = await browser.newContext({ storageState: stateFile });
@@ -79,12 +84,13 @@ app.post("/job", async (req, res) => {
   try {
     await page.goto(url, { waitUntil: "networkidle" });
     
-    // Automation logic for MyAffiliates Search and Replace form goes here
-    // Example: 
+    // Add Playwright automation logic for the form here
+    // Example:
     // await page.fill('input[name="search"]', blockedDomain);
     // await page.fill('input[name="replace"]', replacementDomain);
+    // await page.click('button[type="submit"]');
 
-    res.json({ ok: true, message: "Job processed", domain: replacementDomain });
+    res.json({ ok: true, message: `Job processed for ${instance}`, domain: replacementDomain });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   } finally {
@@ -92,8 +98,8 @@ app.post("/job", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 8080; 
-
+// Railway dynamic port handling
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Worker is up on port ${PORT} and ready for n8n! ✅`);
+  console.log(`Multi-instance worker listening on port ${PORT} ✅`);
 });
