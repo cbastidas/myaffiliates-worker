@@ -6,21 +6,21 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-// Helper to determine the state file path
+// Helper to determine the state file path based on the instance name
 const getStatePath = (instance) => {
   return instance === "Realm" ? "storageState-Realm.json" : "storageState-Throne.json";
 };
 
-// Function to refresh the session and save updated cookies
+// Function to refresh the session and overwrite the JSON with fresh cookies
 async function refreshSession(instance) {
   const stateFile = getStatePath(instance);
   
   if (!fs.existsSync(stateFile)) {
-    throw new Error(`State file ${stateFile} not found. Perform manual login first.`);
+    throw new Error(`State file ${stateFile} not found. Run auth-save.js locally first.`);
   }
 
   const browser = await chromium.launch({ 
-    headless: true,
+    headless: true, 
     args: ["--no-sandbox", "--disable-dev-shm-usage"] 
   });
   
@@ -28,19 +28,19 @@ async function refreshSession(instance) {
   const page = await context.newPage();
 
   const url = instance === "Realm"
-    ? "https://admin2.neataffiliates.com/index.php"
-    : "https://admin.throneneataffiliates.com/index.php";
+    ? "https://admin2.neataffiliates.com/dashboard"
+    : "https://admin.throneneataffiliates.com/dashboard";
 
   try {
     console.log(`Refreshing session for ${instance}...`);
     await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
 
-    // Check if we were redirected to login (session died)
+    // If redirected to login, the session is dead
     if (page.url().includes("login.php")) {
-      throw new Error("Session expired. Manual re-auth required.");
+      throw new Error("Session expired. Manual re-authentication required.");
     }
 
-    // Save the fresh state back to the file
+    // CRITICAL: Save the state back to the file to update cookie expiration
     await context.storageState({ path: stateFile });
     console.log(`Session state updated successfully for ${instance} ✅`);
     return true;
@@ -56,8 +56,9 @@ app.post("/refresh", async (req, res) => {
 
   try {
     await refreshSession(instance);
-    res.json({ ok: true, status: "Refreshed" });
+    res.json({ ok: true, status: "Refreshed and Saved" });
   } catch (error) {
+    console.error("REFRESH_ERROR:", error.message);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -78,11 +79,10 @@ app.post("/job", async (req, res) => {
   try {
     await page.goto(url, { waitUntil: "networkidle" });
     
-    // --- ADD YOUR PLAYWRIGHT SELECTORS HERE ---
-    // Example:
-    // await page.fill('#search_input', blockedDomain);
-    // await page.fill('#replace_input', replacementDomain);
-    // await page.click('#submit_button');
+    // Automation logic for MyAffiliates Search and Replace form goes here
+    // Example: 
+    // await page.fill('input[name="search"]', blockedDomain);
+    // await page.fill('input[name="replace"]', replacementDomain);
 
     res.json({ ok: true, message: "Job processed", domain: replacementDomain });
   } catch (error) {
@@ -93,4 +93,4 @@ app.post("/job", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Worker running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Worker listening on port ${PORT}`));
