@@ -3,14 +3,14 @@ const { chromium } = require("playwright");
 const fs = require("fs");
 const path = require("path");
 
-const app = express();
+const app = express(); // This line was likely missing
 app.use(express.json());
 
 const getStatePath = (instance) => {
   return instance === "Realm" ? "storageState-Realm.json" : "storageState-Throne.json";
 };
 
-// ENDPOINT: Comprehensive Session Status Check
+// ENDPOINT: Check if sessions are valid and files exist
 app.get("/status", async (req, res) => {
   const instances = ["Throne", "Realm"];
   const report = {};
@@ -34,14 +34,12 @@ app.get("/status", async (req, res) => {
           : "https://admin.throneneataffiliates.com/dashboard";
 
         await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-        
-        // Session is active if we are not redirected to login.php
         sessionActive = !page.url().includes("login.php");
         details = sessionActive ? "Session Verified" : "Cookies Expired";
       } catch (err) {
         details = `Error: ${err.message}`;
       } finally {
-        await browser.close();
+        if (browser) await browser.close();
       }
     } else {
       details = "File Missing";
@@ -87,16 +85,14 @@ app.post("/refresh", async (req, res) => {
       throw new Error("Session expired");
     }
 
-    // Explicitly overwrite the state file with new cookies
     await context.storageState({ path: stateFile });
     console.log(`[SESSION] ${instance} state updated on disk.`);
     
-    res.json({ ok: true, message: `Session for ${instance} is refreshed and saved.` });
+    res.json({ ok: true, message: `Session for ${instance} refreshed and saved.` });
   } catch (error) {
-    console.error(`[ERROR] ${instance}:`, error.message);
     res.status(500).json({ ok: false, error: error.message });
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 });
 
@@ -119,18 +115,17 @@ app.post("/job", async (req, res) => {
 
     await page.goto(url, { waitUntil: "networkidle" });
     
-    // Check if we are still logged in before trying to fill the form
     if (page.url().includes("login.php")) {
-      return res.status(401).json({ ok: false, error: "Auth failed at job start" });
+      return res.status(401).json({ ok: false, error: "Auth failed" });
     }
 
-    // FORM AUTOMATION WOULD GO HERE
+    // FORM AUTOMATION LOGIC GOES HERE
     
     res.json({ ok: true, message: "Job processed", instance: instance });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 });
 
