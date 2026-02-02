@@ -11,7 +11,7 @@ const getStatePath = (instance) => {
     return instance === "Realm" ? "storageState-Realm.json" : "storageState-Throne.json";
 };
 
-// HELPER: Simulate human-like mouse movements
+// HELPER: Simulate human-like mouse movements to bypass anti-bot
 async function simulateHumanMovement(page) {
     const viewport = page.viewportSize() || { width: 1280, height: 720 };
     const movements = Math.floor(Math.random() * 6) + 5;
@@ -25,55 +25,35 @@ async function simulateHumanMovement(page) {
     }
 }
 
-// NEW ENDPOINT: Visual Debug Refresh (Reloads, Screenshots, and Saves Session)
+// ENDPOINT 1: Visual Debug Refresh (Targeting index.php)
+// Use this every 30-60 mins for a "Hard Refresh" and session save
 app.post("/debug-refresh", async (req, res) => {
     const { instance } = req.body;
     const stateFile = getStatePath(instance);
-    
-    // On Railway (Production), we must use headless: true. 
-    // The screenshot will act as your "eyes".
-    const browser = await chromium.launch({ 
-        headless: true, 
-        args: ["--no-sandbox", "--disable-dev-shm-usage"] 
-    });
+    const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 
     try {
         const context = await browser.newContext({ storageState: stateFile });
         const page = await context.newPage();
-        const url = instance === "Realm" ? "https://admin2.neataffiliates.com/dashboard" : "https://admin.throneneataffiliates.com/dashboard";
+        const baseUrl = instance === "Realm" ? "https://admin2.neataffiliates.com" : "https://admin.throneneataffiliates.com";
+        const url = `${baseUrl}/index.php`;
         
-        console.log(`[${instance}] Opening browser for debug refresh...`);
         await page.goto(url, { waitUntil: "networkidle" });
-
-        // 1. Human movement simulation
         await simulateHumanMovement(page);
-
-        // 2. Force Page Reload (This acts as the active backup you wanted)
-        console.log(`[${instance}] Reloading page to verify session...`);
         await page.reload({ waitUntil: "networkidle" });
 
-        // 3. Take Screenshot (Verify what's happening visually)
         const screenshotName = `debug-${instance}.png`;
         await page.screenshot({ path: screenshotName });
 
-        // 4. Verify login status
         if (page.url().includes("login.php")) {
-            throw new Error("Session Expired: Redirected to login page.");
+            const errorImg = fs.readFileSync(screenshotName, { encoding: 'base64' });
+            return res.status(401).json({ ok: false, message: "AUTH_REQUIRED", screenshot: errorImg });
         }
 
-        // 5. Save the state (Crucial to persist the refreshed session)
         await context.storageState({ path: stateFile });
-        console.log(`[${instance}] Session successfully refreshed and saved.`);
-
-        // Convert screenshot to Base64 for Slack/n8n reporting
         const imageBase64 = fs.readFileSync(screenshotName, { encoding: 'base64' });
 
-        res.json({ 
-            ok: true, 
-            instance,
-            message: "Debug refresh successful.",
-            screenshot: imageBase64 
-        });
+        res.json({ ok: true, instance, message: "Hard refresh successful", screenshot: imageBase64 });
     } catch (error) {
         res.status(500).json({ ok: false, error: error.message });
     } finally {
@@ -81,31 +61,8 @@ app.post("/debug-refresh", async (req, res) => {
     }
 });
 
-// ENDPOINT: Status Check
-app.get("/status", async (req, res) => {
-    const instances = ["Throne", "Realm"];
-    const report = {};
-    for (const instance of instances) {
-        const stateFile = getStatePath(instance);
-        const fileExists = fs.existsSync(stateFile);
-        let sessionActive = false;
-        
-        if (fileExists) {
-            const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-            try {
-                const context = await browser.newContext({ storageState: stateFile });
-                const page = await context.newPage();
-                const url = instance === "Realm" ? "https://admin2.neataffiliates.com/dashboard" : "https://admin.throneneataffiliates.com/dashboard";
-                await page.goto(url, { waitUntil: "networkidle", timeout: 20000 });
-                sessionActive = !page.url().includes("login.php");
-            } catch (err) { console.error(err); } finally { if (browser) await browser.close(); }
-        }
-        report[instance] = { file_exists: fileExists, session_active: sessionActive };
-    }
-    res.json({ status: "ONLINE", results: report });
-});
-
-// ENDPOINT: Ghost Activity (Dedicated Human Presence Simulation)
+// ENDPOINT 2: Ghost Activity (Lightweight presence simulation)
+// Use this every 10-15 mins to keep the session "warm" without heavy reloading
 app.post("/ghost-activity", async (req, res) => {
     const { instance } = req.body;
     const stateFile = getStatePath(instance);
@@ -114,46 +71,35 @@ app.post("/ghost-activity", async (req, res) => {
     try {
         const context = await browser.newContext({ storageState: stateFile });
         const page = await context.newPage();
-        const url = instance === "Realm" ? "https://admin2.neataffiliates.com/dashboard" : "https://admin.throneneataffiliates.com/dashboard";
-        await page.goto(url, { waitUntil: "networkidle" });
+        const baseUrl = instance === "Realm" ? "https://admin2.neataffiliates.com" : "https://admin.throneneataffiliates.com";
         
-        console.log(`[${instance}] Simulating Ghost Activity...`);
+        await page.goto(`${baseUrl}/index.php`, { waitUntil: "networkidle" });
+        console.log(`[${instance}] Ghost Activity: Simulating mouse movements...`);
         await simulateHumanMovement(page);
         
-        res.json({ ok: true, message: `Ghost Activity executed for ${instance}.` });
-    } catch (error) { res.status(500).json({ ok: false, error: error.message }); } finally { if (browser) await browser.close(); }
+        res.json({ ok: true, message: `Ghost Activity successfully simulated for ${instance}.` });
+    } catch (error) {
+        res.status(500).json({ ok: false, error: error.message });
+    } finally {
+        if (browser) await browser.close();
+    }
 });
 
-// ENDPOINT: Execute Search & Replace Job
+// ENDPOINT 3: Execute Search & Replace Job
 app.post("/job", async (req, res) => {
     const { instance, blockedDomain, replacementDomain } = req.body;
     const stateFile = getStatePath(instance);
-    const trace = [];
-
-    const addLog = (msg) => {
-        const log = `[${new Date().toISOString().split('T')[1].split('.')[0]}] [${instance}] ${msg}`;
-        console.log(log);
-        trace.push(log);
-    };
-
     const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
     
     try {
-        addLog("DEBUG: Starting Job...");
         const context = await browser.newContext({ storageState: stateFile });
         const page = await context.newPage();
         const baseUrl = instance === "Realm" ? "https://admin2.neataffiliates.com" : "https://admin.throneneataffiliates.com";
         
         await page.goto(`${baseUrl}/landing-pages/search-and-replace`, { waitUntil: "networkidle" });
-        
-        if (page.url().includes("login.php")) {
-            addLog("DEBUG: ERROR - Session dead.");
-            return res.status(401).json({ ok: false, error: "Auth failed", debug: trace });
-        }
+        if (page.url().includes("login.php")) return res.status(401).json({ ok: false, error: "Auth failed" });
 
         await simulateHumanMovement(page);
-
-        addLog("DEBUG: Filling domains...");
         await page.fill("#search_and_replace_dataSearch", blockedDomain);
         await page.fill("#search_and_replace_dataReplace", replacementDomain);
         
@@ -162,14 +108,6 @@ app.post("/job", async (req, res) => {
             page.waitForNavigation({ waitUntil: "networkidle" })
         ]);
 
-        const errorAlert = await page.$(".alert-error");
-        if (errorAlert) {
-            const errorText = await errorAlert.innerText();
-            addLog(`DEBUG: ALERT - ${errorText.trim()}`);
-            return res.json({ ok: false, message: "No records found", details: errorText.trim(), debug: trace });
-        }
-
-        addLog("DEBUG: Confirmation screen detected.");
         const confirmLabel = await page.innerText('label[for="search_and_replace_confirmation_confirm"]');
         await page.click("#search_and_replace_confirmation_confirm");
 
@@ -178,12 +116,9 @@ app.post("/job", async (req, res) => {
             page.waitForNavigation({ waitUntil: "networkidle" })
         ]);
 
-        addLog("DEBUG: Replace All executed successfully.");
-        res.json({ ok: true, instance: instance, confirmation: confirmLabel.trim(), debug: trace });
-
+        res.json({ ok: true, instance, confirmation: confirmLabel.trim() });
     } catch (error) {
-        addLog(`DEBUG: EXCEPTION - ${error.message}`);
-        res.status(500).json({ ok: false, error: error.message, debug: trace });
+        res.status(500).json({ ok: false, error: error.message });
     } finally {
         if (browser) await browser.close();
     }
