@@ -26,7 +26,6 @@ async function simulateHumanMovement(page) {
 }
 
 // ENDPOINT 1: Visual Debug Refresh (Targeting index.php)
-// Use this every 30-60 mins for a "Hard Refresh" and session save
 app.post("/debug-refresh", async (req, res) => {
     const { instance } = req.body;
     const stateFile = getStatePath(instance);
@@ -62,7 +61,6 @@ app.post("/debug-refresh", async (req, res) => {
 });
 
 // ENDPOINT 2: Ghost Activity (Lightweight presence simulation)
-// Use this every 10-15 mins to keep the session "warm" without heavy reloading
 app.post("/ghost-activity", async (req, res) => {
     const { instance } = req.body;
     const stateFile = getStatePath(instance);
@@ -89,36 +87,75 @@ app.post("/ghost-activity", async (req, res) => {
 app.post("/job", async (req, res) => {
     const { instance, blockedDomain, replacementDomain } = req.body;
     const stateFile = getStatePath(instance);
+    const trace = [];
+
+    const addLog = (msg) => {
+        const log = `[${new Date().toISOString().split('T')[1].split('.')[0]}] [${instance}] ${msg}`;
+        console.log(log);
+        trace.push(log);
+    };
+
     const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
     
     try {
+        addLog("DEBUG: Starting Job...");
         const context = await browser.newContext({ storageState: stateFile });
         const page = await context.newPage();
         const baseUrl = instance === "Realm" ? "https://admin2.neataffiliates.com" : "https://admin.throneneataffiliates.com";
         
         await page.goto(`${baseUrl}/landing-pages/search-and-replace`, { waitUntil: "networkidle" });
-        if (page.url().includes("login.php")) return res.status(401).json({ ok: false, error: "Auth failed" });
+        if (page.url().includes("login.php")) {
+            addLog("DEBUG: ERROR - Session dead.");
+            return res.status(401).json({ ok: false, error: "Auth failed", debug: trace });
+        }
 
         await simulateHumanMovement(page);
+
+        addLog("DEBUG: Filling domains...");
         await page.fill("#search_and_replace_dataSearch", blockedDomain);
         await page.fill("#search_and_replace_dataReplace", replacementDomain);
         
+        addLog("DEBUG: Clicking Preview...");
         await Promise.all([
             page.click('input[type="submit"].btn-success'),
-            page.waitForNavigation({ waitUntil: "networkidle" })
+            page.waitForNavigation({ waitUntil: "networkidle", timeout: 60000 }) // 60s timeout for navigation
         ]);
 
+        // VERIFICATION: Check if confirmation exists OR if an error alert appeared
+        addLog("DEBUG: Checking for results...");
+        try {
+            await page.waitForSelector('label[for="search_and_replace_confirmation_confirm"], .alert-error', { timeout: 15000 });
+        } catch (e) {
+            addLog("DEBUG: Timeout - No confirmation or error found.");
+            return res.status(404).json({ ok: false, message: "Page results took too long or were not found.", debug: trace });
+        }
+
+        const errorAlert = await page.$(".alert-error");
+        if (errorAlert) {
+            const errorText = await errorAlert.innerText();
+            addLog(`DEBUG: ALERT - ${errorText.trim()}`);
+            return res.json({ ok: false, message: "No records found", details: errorText.trim(), debug: trace });
+        }
+
+        // CONFIRMATION SCREEN
+        addLog("DEBUG: Reading confirmation label...");
         const confirmLabel = await page.innerText('label[for="search_and_replace_confirmation_confirm"]');
+        addLog(`DEBUG: Confirmation Text: ${confirmLabel.trim()}`);
+
+        addLog("DEBUG: Checking confirmation box...");
         await page.click("#search_and_replace_confirmation_confirm");
 
+        addLog("DEBUG: Clicking 'Replace All'...");
         await Promise.all([
             page.click('input[type="submit"][value="Replace All"]'),
-            page.waitForNavigation({ waitUntil: "networkidle" })
+            page.waitForNavigation({ waitUntil: "networkidle", timeout: 60000 })
         ]);
 
-        res.json({ ok: true, instance, confirmation: confirmLabel.trim() });
+        addLog("DEBUG: Execution successful.");
+        res.json({ ok: true, instance, confirmation: confirmLabel.trim(), debug: trace });
     } catch (error) {
-        res.status(500).json({ ok: false, error: error.message });
+        addLog(`DEBUG: EXCEPTION - ${error.message}`);
+        res.status(500).json({ ok: false, error: error.message, debug: trace });
     } finally {
         if (browser) await browser.close();
     }
